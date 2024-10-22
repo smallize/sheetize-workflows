@@ -36,5 +36,5 @@ jobs:
     - name: Deploy
       run: hugo deploy --config "configs/products.sheetize.com.toml" --maxDeletes=-1 --target "${{ github.event.inputs.environment }}" --invalidateCDN --force
       env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY_2 }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_2 }}
