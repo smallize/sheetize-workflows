@@ -20,7 +20,7 @@ jobs:
           extended: true
 
     - name: Build 
-      run: hugo --config "configs/www.sheetize.com.toml","configs/common.sheetize.com.toml" -b "www.sheetize.com" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
+      run: hugo --config "configs/www.sheetize.com.toml","configs/common.sheetize.com.toml" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy
       run: hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
       env:
