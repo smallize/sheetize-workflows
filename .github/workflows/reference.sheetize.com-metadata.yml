@@ -1,0 +1,125 @@
+name: reference.sheetize.com-metadata
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        repository: smallize/sheetize
+        token: ${{ secrets.REPO_TOKEN }}
+        fetch-depth: 0
+
+    - name: Install dependencies
+      run: |
+        choco install python --pre --no-progress
+        python -m pip install --upgrade pip
+        python -m pip install beautifulsoup4
+
+    - name: Install .NET SDK 8.0
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+        include-prerelease: true
+
+    - name: Find latest zip file
+      id: find_zip
+      shell: bash
+      run: |
+        latest_zip=$(ls packages/Sheetize.*.zip | sort -V | tail -n1)
+        echo "Latest zip file is $latest_zip"
+        echo "zip_file=$latest_zip" >> $GITHUB_OUTPUT
+
+    - name: Extract the latest zip file
+      run: |
+        mkdir temp_folder
+        tar -xf "${{ steps.find_zip.outputs.zip_file }}" -C temp_folder
+
+    - name: Find the correct DLL and XML set
+      id: find_dll_xml
+      shell: bash
+      run: |
+        echo "Searching for .dll and .xml files in the extracted archive"
+        dll_file=""
+        xml_file=""
+        for dir in $(find temp_folder -type d); do
+          if [ -f "$dir/Sheetize.dll" ] && [ -f "$dir/Sheetize.xml" ]; then
+            dll_file="$dir/Sheetize.dll"
+            xml_file="$dir/Sheetize.xml"
+            break
+          fi
+        done
+
+        if [ -z "$dll_file" ] || [ -z "$xml_file" ]; then
+          echo "Error: No matching .dll and .xml files found in the same directory"
+          exit 1
+        fi
+
+        echo "DLL file: $dll_file"
+        echo "XML file: $xml_file"
+        echo "dll_file=$dll_file" >> $GITHUB_OUTPUT
+        echo "xml_file=$xml_file" >> $GITHUB_OUTPUT
+
+    - name: Prepare docfx_input
+      run: |
+        mkdir temp_folder\docfx_input
+        copy "${{ steps.find_dll_xml.outputs.dll_file }}" temp_folder\docfx_input\
+        copy "${{ steps.find_dll_xml.outputs.xml_file }}" temp_folder\docfx_input\
+
+    - name: Download and extract DocFX
+      run: |
+        curl -L -o docfx.zip https://github.com/dotnet/docfx/releases/download/v2.77.0/docfx-win-x64-v2.77.0.zip
+        tar -xf docfx.zip -C temp_folder\docfx_input
+
+    - name: Copy docfx.json to docfx_input
+      run: |
+        copy docfx.json temp_folder\docfx_input\
+
+    - name: Run DocFX
+      working-directory: temp_folder\docfx_input
+      run: |
+        .\docfx metadata --logLevel Warning || echo "DocFX failed with exit code %ERRORLEVEL%"
+
+    - name: Run Python script
+      run: |
+        python scripts\postprocessor.py temp_folder\docfx_input\api
+
+    - name: Copy files to Hugo content
+      run: |
+        # Ensure the target directory is empty
+        if (Test-Path -Path content\reference.sheetize.com\en\) {
+            Remove-Item -Recurse -Force content\reference.sheetize.com\en\
+        }
+        New-Item -ItemType Directory -Force -Path content\reference.sheetize.com\en\
+        xcopy /s /e /y temp_folder\docfx_input\api\* content\reference.sheetize.com\en\
+
+    - name: Clean up temporary files
+      run: |
+        if (Test-Path -Path temp_folder) {
+            Remove-Item -Recurse -Force temp_folder
+        }
+        if (Test-Path -Path docfx.zip) {
+            Remove-Item -Force docfx.zip
+        }
+
+    - name: Configure git
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+
+    - name: Commit changes and push to a new branch
+      id: commit_and_push
+      shell: pwsh
+      run: |
+        $short_date = (Get-Date -Format "yyyy-MM-dd")
+        $branch_name = "api-metadata-$short_date"
+        git checkout -b $branch_name || git checkout $branch_name
+        git pull origin $branch_name || echo "No remote branch to pull, creating a new one."
+        git add content/reference.sheetize.com/en
+        git commit -m "Updated API documentation" || echo "No changes to commit"
+        git push origin $branch_name
+        echo "branch_name=$branch_name" >> $env:GITHUB_OUTPUT
