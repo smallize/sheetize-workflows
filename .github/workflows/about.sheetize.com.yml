@@ -5,7 +5,7 @@ on:
       environment:
         description: 'Environment'
         type: environment
-        default: staging
+        default: production
         required: true
 jobs:
   deploy:
