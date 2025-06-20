@@ -1,7 +1,12 @@
 name: reference.sheetize.com
 on:
   workflow_dispatch:
-  
+    inputs:
+      environment:
+        description: 'Environment'
+        type: environment
+        default: production
+        required: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
