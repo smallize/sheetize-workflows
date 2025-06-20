@@ -1,7 +1,12 @@
 name: docs.sheetize.com
 on:
   workflow_dispatch:
-  
+      inputs:
+        environment:
+          description: 'Environment'
+          type: environment
+          default: staging
+          required: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
