@@ -24,14 +24,6 @@ jobs:
       with:
           hugo-version: '0.135.0'
           extended: true
-    - name: Determine Base URL
-      id: base-url
-      run: |
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "::set-output name=url::https://reference.sheetize.com"
-        else
-          echo "::set-output name=url::https://reference-qa.sheetize.com"
-        fi
     - name: Build 
       run: hugo --config "configs/reference.sheetize.com.toml","configs/common.sheetize.com.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy
