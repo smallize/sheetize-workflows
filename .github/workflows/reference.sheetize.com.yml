@@ -24,7 +24,7 @@ jobs:
       with:
           hugo-version: '0.135.0'
           extended: true
-    - name: Determine Base URLAdd commentMore actions
+    - name: Determine Base URL
       id: base-url
       run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
