@@ -28,9 +28,9 @@ jobs:
       id: base-url
       run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "::set-output name=url::https://products.sheetize.com"
+          echo "::set-output name=url::https://releases.sheetize.com"
         else
-          echo "::set-output name=url::https://products-qa.sheetize.com"
+          echo "::set-output name=url::https://releases-qa.sheetize.com"
         fi
     - name: Build 
       run: hugo --config "configs/releases.sheetize.com.toml","configs/common.sheetize.com.toml" -b "${{ steps.base-url.outputs.url }}" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
