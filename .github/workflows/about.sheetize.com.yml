@@ -19,16 +19,13 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0 
           submodules: true
+    - name: Install Node.js dependencies (PostCSS)
+      run: npm ci
     - name: Setup Hugo
       uses: peaceiris/actions-hugo@v2
       with:
           hugo-version: '0.135.0'
           extended: true
-    - name: Install Hugo
-      uses: peaceiris/actions-hugo@v2
-      with:
-        hugo-version: 'latest'
-        extended: true
     - name: Determine Base URL
       id: base-url
       run: |
