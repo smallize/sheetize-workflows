@@ -31,9 +31,18 @@ jobs:
       id: find_zip
       shell: bash
       run: |
-        latest_zip=$(ls packages/Sheetize.*.zip | sort -V | tail -n1)
+        ls -l packages/
+        # List all matching zip files, extract version, sort, pick the newest
+        latest_zip=$(
+          ls packages/Sheetize.*.zip | \
+          sed -E 's/^packages\/Sheetize\.([0-9]+\.[0-9]+\.[0-9]+)\.zip$/\1 \0/' | \
+          sort -V | \
+          awk '{print $2}' | \
+          tail -n1
+        )
         echo "Latest zip file is $latest_zip"
         echo "zip_file=$latest_zip" >> $GITHUB_OUTPUT
+
 
     - name: Extract the latest zip file
       run: |
