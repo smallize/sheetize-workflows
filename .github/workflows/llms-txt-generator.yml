@@ -24,10 +24,10 @@ jobs:
       - name: Checkout workflow repo (default)
         uses: actions/checkout@v4
 
-      - name: Checkout theme repo (smallize/sheetize.com)
+      - name: Checkout theme repo (smallize/sheetize)
         uses: actions/checkout@v4
         with:
-          repository: smallize/sheetize.com
+          repository: smallize/sheetize
           token: ${{ secrets.REPO_TOKEN }}
           path: checked_out_repo
           fetch-depth: 0
