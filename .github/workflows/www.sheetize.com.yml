@@ -35,7 +35,7 @@ jobs:
     - name: Build 
       run: hugo --config "configs/www.sheetize.com.toml","configs/common.sheetize.com.toml" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy
-      run: 
+      run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
          hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
         else
