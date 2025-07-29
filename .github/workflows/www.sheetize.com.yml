@@ -35,7 +35,12 @@ jobs:
     - name: Build 
       run: hugo --config "configs/www.sheetize.com.toml","configs/common.sheetize.com.toml" --cleanDestinationDir --minify --templateMetrics --templateMetricsHints --enableGitInfo
     - name: Deploy
-      run: hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
+      run: 
+        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+         hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
+        else
+          hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "staging" --invalidateCDN --force
+        fi
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS }}
