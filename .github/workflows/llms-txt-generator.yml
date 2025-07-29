@@ -27,7 +27,7 @@ jobs:
       - name: Checkout theme repo (Aspose/sheetize.com)
         uses: actions/checkout@v4
         with:
-          repository: Aspose/sheetize.com
+          repository: Smallize/sheetize.com
           token: ${{ secrets.REPO_TOKEN }}
           path: checked_out_repo
           fetch-depth: 0
