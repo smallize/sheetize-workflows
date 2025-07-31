@@ -9,21 +9,21 @@ on:
         default: '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]'
 
   schedule:
-    - cron: "0 2 * * 6"           # every Saturday 02:00 UTC
+    - cron: "0 2 * * 6"  # every Saturday 02:00 UTC
 
 jobs:
-  geo-pipeline:
+  # Job 1: Check out the repo and save it as an artifact
+  prepare-repo:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        subdomain: ${{ fromJson(github.event.inputs.subdomains ||
-          '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]') }}
-
+    outputs:
+      subdomains_json: ${{ steps.set-matrix-input.outputs.subdomains }}
     steps:
-      # ———————————————————————————————————————————————————————  Checkout
-      - name: Checkout workflow repo (default)
-        uses: actions/checkout@v4
-
+      - name: Set matrix input
+        id: set-matrix-input
+        run: |
+          echo "subdomains=${{ github.event.inputs.subdomains || '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]' }}" >> $GITHUB_OUTPUT
+      
+      # ——————————————————————————————————————————————————————— Checkout (only once)
       - name: Checkout theme repo (smallize/sheetize)
         uses: actions/checkout@v4
         with:
@@ -32,7 +32,32 @@ jobs:
           path: checked_out_repo
           fetch-depth: 0
 
-      # ———————————————————————————————————————————————————————  Python + deps
+      # ——————————————————————————————————————————————————————— Upload as an artifact
+      - name: Upload checked-out repo as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheetize-repo-artifact
+          path: checked_out_repo/
+          retention-days: 1 # Keep the artifact for 1 day, it's only needed for this run
+
+  # Job 2: Run the matrix steps in parallel
+  geo-pipeline:
+    needs: prepare-repo # This job depends on the prepare-repo job
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        subdomain: ${{ fromJson(needs.prepare-repo.outputs.subdomains_json) }}
+
+    steps:
+      # ——————————————————————————————————————————————————————— Download the artifact
+      - name: Download checked-out repo artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sheetize-repo-artifact
+          path: checked_out_repo
+
+      # The rest of your steps remain mostly the same
+      # ——————————————————————————————————————————————————————— Python + deps
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -43,41 +68,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      # ———————————————————————————————————————————————————————  AWS auth
+      # ——————————————————————————————————————————————————————— AWS auth
       - name: Configure AWS credentials (production S3)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:      ${{ secrets.ACCESS_KEY_2 }}
+          aws-access-key-id: ${{ secrets.ACCESS_KEY_2 }}
           aws-secret-access-key: ${{ secrets.SECRET_ACCESS_2 }}
-          aws-region:            ${{ secrets.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # ———————————————————————————————————————————————————————  GEO generator
+      # ——————————————————————————————————————————————————————— GEO generator
       - name: Generate Markdown for ${{ matrix.subdomain }}
         id: geo_generate
         run: |
           set -e
           echo "Starting geo.py for subdomain: ${{ matrix.subdomain }}"
-
           INPUT_DIR="checked_out_repo/content/"
           OUTPUT_DIR="checked_out_repo/geo/"
           MAPPING_FILE="checked_out_repo/scripts/geo/mapping.json"
-
-
           python3 checked_out_repo/scripts/geo/geo.py \
-            --input   "$INPUT_DIR" \
-            --output  "$OUTPUT_DIR" \
+            --input  "$INPUT_DIR" \
+            --output "$OUTPUT_DIR" \
             --subdomain "${{ matrix.subdomain }}" \
             --mapping "$MAPPING_FILE"
-
-      # ———————————————————————————————————————————————————————  Upload to S3
+            
+      # ——————————————————————————————————————————————————————— Upload to S3
       - name: Upload ${{ matrix.subdomain }} output to S3 (production)
         id: upload_to_s3
         run: |
           set -e
           OUTPUT_DIR="checked_out_repo/geo/${{ matrix.subdomain }}/"
           S3_BUCKET="${{ matrix.subdomain }}"
-
-          # Safety: Only upload if output dir exists and is not empty
           if [ -d "$OUTPUT_DIR" ] && [ "$(ls -A "$OUTPUT_DIR")" ]; then
             echo "Uploading $OUTPUT_DIR to s3://$S3_BUCKET/ (recursive)"
             aws s3 cp "$OUTPUT_DIR" "s3://$S3_BUCKET/" --recursive --only-show-errors
@@ -85,39 +105,26 @@ jobs:
             echo "Output directory $OUTPUT_DIR does not exist or is empty. Nothing to upload for $S3_BUCKET."
           fi
 
-      # ———————————————————————————————————————————————————————  Verify upload
+      # ——————————————————————————————————————————————————————— Verify upload
       - name: Verify llms.txt upload time
         if: success()
         run: |
           set -e
           SUBDOMAIN="${{ matrix.subdomain }}"
-          FILE_KEY="llms.txt" # Assuming geo.py places llms.txt directly in the output root
+          FILE_KEY="llms.txt"
           S3_PATH="s3://${SUBDOMAIN}/${FILE_KEY}"
-
           echo "Verifying last modified date for ${S3_PATH}"
-
-          # Get the LastModified timestamp from S3
-          # Using --output text and --query to extract just the LastModified date
           LAST_MODIFIED_ISO=$(aws s3api head-object --bucket "${SUBDOMAIN}" --key "${FILE_KEY}" --query 'LastModified' --output text 2>/dev/null)
-
           if [ -z "$LAST_MODIFIED_ISO" ]; then
               echo "::error::File ${S3_PATH} not found or no LastModified date available."
               exit 1
           fi
-
-          # Convert ISO 8601 string (e.g., "2024-07-28T13:45:00.123Z") to Unix timestamp
-          # Using date -d which handles various formats.
           LAST_MODIFIED_UNIX=$(date -d "$LAST_MODIFIED_ISO" +%s)
           CURRENT_UNIX=$(date +%s)
-
-          # Calculate difference in seconds
           DIFF_SECONDS=$((CURRENT_UNIX - LAST_MODIFIED_UNIX))
-
           echo "Current time (Unix): $CURRENT_UNIX"
           echo "File last modified (Unix): $LAST_MODIFIED_UNIX (from $LAST_MODIFIED_ISO)"
           echo "Time difference (seconds): $DIFF_SECONDS"
-
-          # Check if the file was modified within the last minute (60 seconds)
           if [ "$DIFF_SECONDS" -lt 60 ] && [ "$DIFF_SECONDS" -ge 0 ]; then
               echo "✅ Success: ${FILE_KEY} on ${SUBDOMAIN} was modified less than 1 minute ago ($DIFF_SECONDS seconds)."
           else
