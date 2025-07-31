@@ -1,24 +1,35 @@
+# This workflow is responsible for generating content for various subdomains
+# and synchronizing it with a production environment (S3).
+# It's designed to be triggered manually or on a weekly schedule.
 name: generate-sync-llms-txt
 
 on:
+  # Allows for manual triggering of the workflow from the GitHub UI.
   workflow_dispatch:
     inputs:
       subdomains:
-        description: "JSON array of sub-domains"
+        description: "JSON array of sub-domains to process. Overrides the default list."
         required: false
         default: '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]'
 
+  # Schedules the workflow to run automatically every Saturday at 02:00 UTC.
   schedule:
-    - cron: "0 2 * * 6"  # every Saturday 02:00 UTC
+    - cron: "0 2 * * 6"
 
 jobs:
-  # Job 1: Check out the repo and save it as an artifact
+  # ———————————————————————————————————————————————————————
+  # Job 1: prepare-repo
+  # This job runs once to check out the 'smallize/sheetize' repository
+  # and save its contents as a workflow artifact. This is a crucial step
+  # to avoid redundant checkouts in the parallel matrix jobs that follow.
   prepare-repo:
     runs-on: ubuntu-latest
     outputs:
+      # Passes the subdomain list to the next job's matrix strategy.
       subdomains_json: ${{ steps.set-matrix-input.outputs.subdomains }}
     steps:
-      # ——————————————————————————————————————————————————————— Set matrix input
+      # This step handles the input from `workflow_dispatch` and sets a job output.
+      # It ensures the next job's matrix uses the user-provided list or the default one.
       - name: Set matrix input
         id: set-matrix-input
         shell: bash
@@ -26,7 +37,7 @@ jobs:
           SUBDOMAINS_JSON='${{ github.event.inputs.subdomains || '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]' }}'
           echo "subdomains=$SUBDOMAINS_JSON" >> $GITHUB_OUTPUT
       
-      # ——————————————————————————————————————————————————————— Checkout (only once)
+      # Checks out the target repository only once.
       - name: Checkout theme repo (smallize/sheetize)
         uses: actions/checkout@v4
         with:
@@ -35,44 +46,51 @@ jobs:
           path: checked_out_repo
           fetch-depth: 0
 
-      # ——————————————————————————————————————————————————————— Upload as an artifact
+      # Uploads the entire checked-out repository as a single artifact.
+      # This artifact will be downloaded by the parallel jobs.
       - name: Upload checked-out repo as artifact
         uses: actions/upload-artifact@v4
         with:
           name: sheetize-repo-artifact
           path: checked_out_repo/
-          retention-days: 1 # Keep the artifact for 1 day, it's only needed for this run
+          retention-days: 1 # The artifact will be deleted after one day if not deleted manually.
 
-  # Job 2: Run the matrix steps in parallel
+  # ———————————————————————————————————————————————————————
+  # Job 2: geo-pipeline
+  # This job runs in parallel for each subdomain defined in the matrix.
+  # It downloads the artifact, runs the Python script, and uploads the output to S3.
   geo-pipeline:
-    needs: prepare-repo
+    needs: prepare-repo # Ensures this job waits for the 'prepare-repo' job to finish.
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # The matrix is created from the JSON output of the 'prepare-repo' job.
         subdomain: ${{ fromJson(needs.prepare-repo.outputs.subdomains_json) }}
-      fail-fast: false 
+      # Crucially, this prevents the entire workflow from failing if one parallel job fails.
+      fail-fast: false
     
     steps:
-      # ——————————————————————————————————————————————————————— Download the artifact
+      # Downloads the shared repository artifact from the 'prepare-repo' job.
       - name: Download checked-out repo artifact
         uses: actions/download-artifact@v4
         with:
           name: sheetize-repo-artifact
           path: checked_out_repo
 
-      # The rest of your steps remain mostly the same
-      # ——————————————————————————————————————————————————————— Python + deps
+      # Sets up the Python environment.
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
 
+      # Installs necessary Python dependencies.
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      # ——————————————————————————————————————————————————————— AWS auth
+      # Configures AWS credentials based on the current subdomain.
+      # This handles different AWS accounts for different subdomains.
       - name: Configure AWS credentials (production S3)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -82,7 +100,7 @@ jobs:
           aws-secret-access-key: >
             ${{ matrix.subdomain == 'www.sheetize.com' && secrets.SECRET_ACCESS || secrets.SECRET_ACCESS_2 }}
 
-      # ——————————————————————————————————————————————————————— GEO generator
+      # Runs the main Python script to generate markdown content.
       - name: Generate Markdown for ${{ matrix.subdomain }}
         id: geo_generate
         run: |
@@ -97,7 +115,7 @@ jobs:
             --subdomain "${{ matrix.subdomain }}" \
             --mapping "$MAPPING_FILE"
             
-      # ——————————————————————————————————————————————————————— Upload to S3
+      # Uploads the generated content to the correct S3 bucket for the subdomain.
       - name: Upload ${{ matrix.subdomain }} output to S3 (production)
         id: upload_to_s3
         run: |
@@ -111,9 +129,9 @@ jobs:
             echo "Output directory $OUTPUT_DIR does not exist or is empty. Nothing to upload for $S3_BUCKET."
           fi
 
-      # ——————————————————————————————————————————————————————— Verify upload
+      # Verifies the upload by checking the last modified date on S3.
       - name: Verify llms.txt upload time
-        if: success()
+        if: success() # Only runs if the previous step was successful.
         run: |
           set -e
           SUBDOMAIN="${{ matrix.subdomain }}"
@@ -132,8 +150,51 @@ jobs:
           echo "File last modified (Unix): $LAST_MODIFIED_UNIX (from $LAST_MODIFIED_ISO)"
           echo "Time difference (seconds): $DIFF_SECONDS"
           if [ "$DIFF_SECONDS" -lt 60 ] && [ "$DIFF_SECONDS" -ge 0 ]; then
-              echo "Success: ${FILE_KEY} on ${SUBDOMAIN} was modified less than 1 minute ago ($DIFF_SECONDS seconds)."
+              echo "✅ Success: ${FILE_KEY} on ${SUBDOMAIN} was modified less than 1 minute ago ($DIFF_SECONDS seconds)."
           else
               echo "::error::Failure: ${FILE_KEY} on ${SUBDOMAIN} was modified $DIFF_SECONDS seconds ago, which is not within the last minute."
               exit 1
           fi
+
+  # ———————————————————————————————————————————————————————
+  # Job 3: delete-artifact
+  # This job runs only if the entire workflow is successful. Its purpose is to
+  # clean up the large 'sheetize-repo-artifact' immediately instead of waiting for
+  # the retention policy to expire.
+  delete-artifact:
+    runs-on: ubuntu-latest
+    needs: geo-pipeline
+    if: success() # This job will only run if ALL previous jobs succeeded.
+    steps:
+      - name: Find and delete artifact
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifactName = 'sheetize-repo-artifact';
+            
+            try {
+              // List all artifacts for the current workflow run.
+              const listArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+              });
+              
+              // Find our specific artifact by name.
+              const artifact = listArtifacts.data.artifacts.find(a => a.name === artifactName);
+              
+              // If the artifact is found, delete it using its ID.
+              if (artifact) {
+                console.log(`Found artifact '${artifact.name}' with ID ${artifact.id}. Deleting...`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+                console.log('Artifact deleted successfully.');
+              } else {
+                console.log(`Artifact '${artifactName}' not found. Nothing to delete.`);
+              }
+            } catch (error) {
+              console.error(`Failed to delete artifact: ${error.message}`);
+            }
