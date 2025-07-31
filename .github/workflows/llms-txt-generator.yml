@@ -18,7 +18,7 @@ jobs:
     outputs:
       subdomains_json: ${{ steps.set-matrix-input.outputs.subdomains }}
     steps:
-      # ——————————————————————————————————————————————————————— Set matrix input (corrected)
+      # ——————————————————————————————————————————————————————— Set matrix input
       - name: Set matrix input
         id: set-matrix-input
         shell: bash
@@ -45,12 +45,13 @@ jobs:
 
   # Job 2: Run the matrix steps in parallel
   geo-pipeline:
-    needs: prepare-repo # This job depends on the prepare-repo job
+    needs: prepare-repo
     runs-on: ubuntu-latest
     strategy:
       matrix:
         subdomain: ${{ fromJson(needs.prepare-repo.outputs.subdomains_json) }}
-
+      fail-fast: false 
+    
     steps:
       # ——————————————————————————————————————————————————————— Download the artifact
       - name: Download checked-out repo artifact
@@ -75,9 +76,11 @@ jobs:
       - name: Configure AWS credentials (production S3)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.ACCESS_KEY_2 }}
-          aws-secret-access-key: ${{ secrets.SECRET_ACCESS_2 }}
           aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: >
+            ${{ matrix.subdomain == 'www.sheetize.com' && secrets.ACCESS_KEY || secrets.ACCESS_KEY_2 }}
+          aws-secret-access-key: >
+            ${{ matrix.subdomain == 'www.sheetize.com' && secrets.SECRET_ACCESS || secrets.SECRET_ACCESS_2 }}
 
       # ——————————————————————————————————————————————————————— GEO generator
       - name: Generate Markdown for ${{ matrix.subdomain }}
@@ -129,7 +132,7 @@ jobs:
           echo "File last modified (Unix): $LAST_MODIFIED_UNIX (from $LAST_MODIFIED_ISO)"
           echo "Time difference (seconds): $DIFF_SECONDS"
           if [ "$DIFF_SECONDS" -lt 60 ] && [ "$DIFF_SECONDS" -ge 0 ]; then
-              echo "✅ Success: ${FILE_KEY} on ${SUBDOMAIN} was modified less than 1 minute ago ($DIFF_SECONDS seconds)."
+              echo "Success: ${FILE_KEY} on ${SUBDOMAIN} was modified less than 1 minute ago ($DIFF_SECONDS seconds)."
           else
               echo "::error::Failure: ${FILE_KEY} on ${SUBDOMAIN} was modified $DIFF_SECONDS seconds ago, which is not within the last minute."
               exit 1
