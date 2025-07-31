@@ -18,10 +18,13 @@ jobs:
     outputs:
       subdomains_json: ${{ steps.set-matrix-input.outputs.subdomains }}
     steps:
+      # ——————————————————————————————————————————————————————— Set matrix input (corrected)
       - name: Set matrix input
         id: set-matrix-input
+        shell: bash
         run: |
-          echo "subdomains=${{ github.event.inputs.subdomains || '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]' }}" >> $GITHUB_OUTPUT
+          SUBDOMAINS_JSON='${{ github.event.inputs.subdomains || '["www.sheetize.com","about.sheetize.com","products.sheetize.com","releases.sheetize.com","reference.sheetize.com","docs.sheetize.com"]' }}'
+          echo "subdomains=$SUBDOMAINS_JSON" >> $GITHUB_OUTPUT
       
       # ——————————————————————————————————————————————————————— Checkout (only once)
       - name: Checkout theme repo (smallize/sheetize)
