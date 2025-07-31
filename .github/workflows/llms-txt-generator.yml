@@ -156,45 +156,47 @@ jobs:
               exit 1
           fi
 
-  # ———————————————————————————————————————————————————————
-  # Job 3: delete-artifact
-  # This job runs only if the entire workflow is successful. Its purpose is to
-  # clean up the large 'sheetize-repo-artifact' immediately instead of waiting for
-  # the retention policy to expire.
-  delete-artifact:
-    runs-on: ubuntu-latest
-    needs: geo-pipeline
-    if: success() # This job will only run if ALL previous jobs succeeded.
-    steps:
-      - name: Find and delete artifact
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const artifactName = 'sheetize-repo-artifact';
+ # ———————————————————————————————————————————————————————
+# Job 3: delete-artifact
+# This job runs only if the entire workflow is successful. Its purpose is to
+# clean up the large 'sheetize-repo-artifact' immediately instead of waiting for
+# the retention policy to expire.
+delete-artifact:
+  runs-on: ubuntu-latest
+  needs: geo-pipeline
+  if: success() # This job will only run if ALL previous jobs succeeded.
+  permissions:
+    actions: write # <<<< ADD THIS LINE to allow the job to delete artifacts
+  steps:
+    - name: Find and delete artifact
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const artifactName = 'sheetize-repo-artifact';
+          
+          try {
+            // List all artifacts for the current workflow run.
+            const listArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
             
-            try {
-              // List all artifacts for the current workflow run.
-              const listArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            // Find our specific artifact by name.
+            const artifact = listArtifacts.data.artifacts.find(a => a.name === artifactName);
+            
+            // If the artifact is found, delete it using its ID.
+            if (artifact) {
+              console.log(`Found artifact '${artifact.name}' with ID ${artifact.id}. Deleting...`);
+              await github.rest.actions.deleteArtifact({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                run_id: context.runId,
+                artifact_id: artifact.id,
               });
-              
-              // Find our specific artifact by name.
-              const artifact = listArtifacts.data.artifacts.find(a => a.name === artifactName);
-              
-              // If the artifact is found, delete it using its ID.
-              if (artifact) {
-                console.log(`Found artifact '${artifact.name}' with ID ${artifact.id}. Deleting...`);
-                await github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: artifact.id,
-                });
-                console.log('Artifact deleted successfully.');
-              } else {
-                console.log(`Artifact '${artifactName}' not found. Nothing to delete.`);
-              }
-            } catch (error) {
-              console.error(`Failed to delete artifact: ${error.message}`);
+              console.log('Artifact deleted successfully.');
+            } else {
+              console.log(`Artifact '${artifactName}' not found. Nothing to delete.`);
             }
+          } catch (error) {
+            console.error(`Failed to delete artifact: ${error.message}`);
+          }
