@@ -15,7 +15,6 @@ jobs:
       uses: actions/checkout@v4
       with:
           repository: smallize/sheetize
-          ref: "reference.sheetize.com"
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0 
           submodules: true
