@@ -37,9 +37,9 @@ jobs:
     - name: Deploy
       run: |
         if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-         hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "production" --invalidateCDN --force
+         hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=0 --target "production" --invalidateCDN --force
         else
-          hugo deploy --config "configs/www.sheetize.com.toml" --maxDeletes=-1 --target "staging" --invalidateCDN --force
+          hugo deploy --config "configs/qa.sheetize.com.toml" --maxDeletes=0 --target "staging" --invalidateCDN --force
         fi
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY }}
