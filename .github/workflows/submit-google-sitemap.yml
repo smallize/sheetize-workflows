@@ -1,4 +1,4 @@
-name: Sitemap Submission
+name: Google Sitemap Submission
 on:
   workflow_dispatch:
   schedule:
