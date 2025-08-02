@@ -1,0 +1,34 @@
+name: Sitemap Submission
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'  # Runs at 2:00 AM UTC every Sunday (once per week)
+
+jobs:
+  sitemap_submission:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checks out the target repository only once.
+    - name: Checkout theme repo (smallize/sheetize)
+      uses: actions/checkout@v4
+      with:
+        repository: smallize/sheetize
+        token: ${{ secrets.REPO_TOKEN }}
+        path: checked_out_repo
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'  # Specify your Python version
+
+    - name: Install Dependencies
+      run: |
+        pip install requests google-api-python-client google-auth
+
+    - name: Run Sitemap Submission Script
+      env:
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      run: |
+        python checked_out_repo/scripts/google/sitemap.py
